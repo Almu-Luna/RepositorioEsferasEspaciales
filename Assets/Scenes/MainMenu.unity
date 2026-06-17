@@ -367,12 +367,12 @@ MonoBehaviour:
   instructionsTitle: CONTROLES
   instructionsText: 'Usa teclas WASD para moverte!
 
-    TAB para CORRER
+    SHIFT para CORRER
 
     RUEDITA
     para MANEJAR ZOOM
 
-    RECOLECTA ESFERAS DE LUZ PARA GANAR!'
+    Lleva las esferas hacia el Centro!'
   gameSceneName: Game
   port: 7779
   titleFontSize: 36
