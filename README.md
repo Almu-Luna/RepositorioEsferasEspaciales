@@ -3,6 +3,7 @@ Practico Evaluativo programacion Joa Luna Cátedra de Producción de Juegos UPC 
 Juego multijugador de recolección de esferas luminosas
 
 INDICE:
+
 1)lógica de networking (Netcode for GameObjects)
 
 2)configuración de Unity que cada uno necesita para funcionar.
