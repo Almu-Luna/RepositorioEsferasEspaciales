@@ -17,14 +17,14 @@ public class GameManager : NetworkBehaviour
     public int maxCollectibles = 5;
 
     [Header("Anti-solapamiento de spawn")]
-    public float spawnRadius = 1.5f;   
-    public int maxSpawnAttempts = 10;  
+    public float spawnRadius = 1.5f;
+    public int maxSpawnAttempts = 10;
 
     [Header("Spawn de jugadores")]
     public Transform[] playerSpawnPoints;
 
     [Header("Respawn por caida")]
-    public float fallThresholdY = -5f; 
+    public float fallThresholdY = -5f;
     public float respawnCheckInterval = 0.5f;
 
     [Header("Audio")]
@@ -33,7 +33,7 @@ public class GameManager : NetworkBehaviour
     public AudioSource levelMusic;
 
     [Header("Cielo nocturno")]
-    public Color skyColor = new Color(0.02f, 0.02f, 0.06f);   // azul casi negro
+    public Color skyColor = new Color(0.02f, 0.02f, 0.06f);
     public Color groundColor = new Color(0.01f, 0.01f, 0.02f);
     public float moonIntensity = 0.25f;
     public int starCount = 800;
@@ -46,16 +46,14 @@ public class GameManager : NetworkBehaviour
 
     [HideInInspector] public int collectibleCount = 0;
 
-    private bool resultSoundPlayed = false;
-    private int nextSpawnIndex = 0; 
+    private int nextSpawnIndex = 0;
     private System.Collections.Generic.Dictionary<ulong, Vector3> assignedSpawn = new System.Collections.Generic.Dictionary<ulong, Vector3>();
 
     private void Awake()
     {
         Instance = this;
-        SetupNightSky(); 
+        SetupNightSky();
     }
-
 
     private void SetupNightSky()
     {
@@ -74,7 +72,7 @@ public class GameManager : NetworkBehaviour
         if (sun != null && sun.type == LightType.Directional)
         {
             sun.intensity = moonIntensity;
-            sun.color = new Color(0.7f, 0.75f, 0.9f); // tinte azulado de luna
+            sun.color = new Color(0.7f, 0.75f, 0.9f);
         }
 
         CreateStarField();
@@ -95,10 +93,10 @@ public class GameManager : NetworkBehaviour
         main.simulationSpace = ParticleSystemSimulationSpace.World;
 
         var emission = ps.emission;
-        emission.enabled = false; 
+        emission.enabled = false;
 
         var shape = ps.shape;
-        shape.enabled = false; 
+        shape.enabled = false;
 
         var renderer = starsGO.GetComponent<ParticleSystemRenderer>();
         renderer.material = new Material(Shader.Find("Particles/Standard Unlit"));
@@ -107,7 +105,7 @@ public class GameManager : NetworkBehaviour
         var emitParams = new ParticleSystem.EmitParams();
         for (int i = 0; i < starCount; i++)
         {
-            Vector3 dir = Random.onUnitSphere; // punto aleatorio en una esfera
+            Vector3 dir = Random.onUnitSphere;
             emitParams.position = dir * starFieldRadius;
             emitParams.startSize = Random.Range(starMinSize, starMaxSize);
             ps.Emit(emitParams, 1);
@@ -116,41 +114,37 @@ public class GameManager : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        PlayLevelMusic(); 
+        PlayLevelMusic();
 
         if (!IsServer) return;
 
         timeRemaining.Value = matchDuration;
         gameOver.Value = false;
-        resultSoundPlayed = false;
         nextSpawnIndex = 0;
         assignedSpawn.Clear();
         StartCoroutine(CountdownRoutine());
         StartCoroutine(SpawnRoutine());
 
-        ResetAllPlayers(); 
+        ResetAllPlayers();
         StartCoroutine(FallRespawnRoutine());
 
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
     }
-
 
     private void PlayLevelMusic()
     {
         if (levelMusic == null) return;
 
         levelMusic.loop = true;
-        levelMusic.Stop();  
-        levelMusic.Play();   
+        levelMusic.Stop();
+        levelMusic.Play();
     }
-
 
     [ServerRpc(RequireOwnership = false)]
     public void RequestRestartServerRpc()
     {
         NetworkManager.Singleton.SceneManager.LoadScene("Game", LoadSceneMode.Single);
     }
-
 
     private void AssignSpawn(ulong clientId, PlayerData data)
     {
@@ -165,7 +159,6 @@ public class GameManager : NetworkBehaviour
         RepositionPlayerClientRpc(spawnPos,
             new ClientRpcParams { Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } } });
     }
-
 
     private void ResetAllPlayers()
     {
@@ -186,7 +179,6 @@ public class GameManager : NetworkBehaviour
         }
     }
 
-    
     private IEnumerator FallRespawnRoutine()
     {
         while (!gameOver.Value)
@@ -205,7 +197,7 @@ public class GameManager : NetworkBehaviour
                 }
 
                 PlayerData data = client.PlayerObject.GetComponent<PlayerData>();
-                if (data != null) data.hasObject.Value = false; // pierde el item cargado al caer
+                if (data != null) data.hasObject.Value = false;
 
                 RepositionPlayerClientRpc(spawnPos,
                     new ClientRpcParams { Send = new ClientRpcSendParams { TargetClientIds = new[] { client.ClientId } } });
@@ -230,40 +222,56 @@ public class GameManager : NetworkBehaviour
 
     void Update()
     {
-
-        if (gameOver.Value && !resultSoundPlayed)
-        {
-            resultSoundPlayed = true;
-            PlayLocalResultSound();
-        }
+        // El sonido ya no se maneja desde Update.
+        // Lo calcula y envía el servidor al terminar el tiempo (ver CountdownRoutine).
     }
 
-    private void PlayLocalResultSound()
+    // ─── CALCULO DE RESULTADO (solo servidor) ────────────────────────────────
+
+    private void NotifyGameResult()
     {
-        if (NetworkManager.Singleton == null) return;
-
-        ulong localId = NetworkManager.Singleton.LocalClientId;
-        if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(localId, out var localClient)) return;
-        if (localClient.PlayerObject == null) return;
-
-        PlayerData localData = localClient.PlayerObject.GetComponent<PlayerData>();
-        if (localData == null) return;
-
+        // Solo corre en el servidor, que tiene el estado completo y autoritativo.
         int bestScore = -1;
         int winnersAtBest = 0;
+        ulong winnerClientId = ulong.MaxValue;
+
         foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
         {
             PlayerData data = client.PlayerObject?.GetComponent<PlayerData>();
             if (data == null) continue;
 
-            if (data.score.Value > bestScore) { bestScore = data.score.Value; winnersAtBest = 1; }
-            else if (data.score.Value == bestScore) winnersAtBest++;
+            if (data.score.Value > bestScore)
+            {
+                bestScore = data.score.Value;
+                winnersAtBest = 1;
+                winnerClientId = client.ClientId;
+            }
+            else if (data.score.Value == bestScore)
+            {
+                winnersAtBest++;
+            }
         }
 
-        bool isWinner = localData.score.Value == bestScore && winnersAtBest == 1;
+        // Si hay empate no hay ganador: enviamos ulong.MaxValue como señal.
+        ulong idToSend = (winnersAtBest == 1) ? winnerClientId : ulong.MaxValue;
+
+        // Un solo RPC broadcast: cada cliente decide por su cuenta
+        // comparando su LocalClientId con el del ganador.
+        PlayResultSoundClientRpc(idToSend);
+    }
+
+    [ClientRpc]
+    private void PlayResultSoundClientRpc(ulong winnerClientId, ClientRpcParams clientRpcParams = default)
+    {
+        // Cada cliente compara su propio ID local — no hay ambigüedad posible.
+        ulong myId = NetworkManager.Singleton.LocalClientId;
+        bool isWinner = (myId == winnerClientId);
+
         AudioSource clip = isWinner ? victorySound : defeatSound;
         if (clip != null) clip.Play();
     }
+
+    // ─── RUTINAS ─────────────────────────────────────────────────────────────
 
     private void OnClientConnected(ulong clientId)
     {
@@ -299,6 +307,11 @@ public class GameManager : NetworkBehaviour
         }
 
         timeRemaining.Value = 0f;
+
+        // El servidor calcula quién ganó y notifica a cada cliente ANTES
+        // de poner gameOver en true, para que el sonido llegue a tiempo.
+        NotifyGameResult();
+
         gameOver.Value = true;
     }
 
@@ -321,7 +334,6 @@ public class GameManager : NetworkBehaviour
             GameObject obj = Instantiate(collectiblePrefab, position, Quaternion.identity);
             obj.GetComponent<NetworkObject>().Spawn();
         }
-      
     }
 
     private bool TryGetFreeSpawnPosition(out Vector3 result)
